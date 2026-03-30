@@ -259,46 +259,11 @@ function renderFallbackIndicator(status: FallbackIndicatorStatus | null | undefi
  * Compact notice when context usage reaches 85%+.
  * Progressively shifts from amber (85%) to red (90%+).
  */
-/** Parse a 6-digit CSS hex color string to [r, g, b] integer components. */
-function parseHexRgb(hex: string): [number, number, number] | null {
-  const h = hex.trim().replace(/^#/, "");
-  if (!/^[0-9a-fA-F]{6}$/.test(h)) {
-    return null;
-  }
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
-let cachedThemeNoticeColors: {
-  warnHex: string;
-  dangerHex: string;
-  warnRgb: [number, number, number];
-  dangerRgb: [number, number, number];
-} | null = null;
-
-function getThemeNoticeColors() {
-  if (cachedThemeNoticeColors) {
-    return cachedThemeNoticeColors;
-  }
-  const rootStyle = getComputedStyle(document.documentElement);
-  const warnHex = rootStyle.getPropertyValue("--warn").trim() || "#f59e0b";
-  const dangerHex = rootStyle.getPropertyValue("--danger").trim() || "#ef4444";
-  cachedThemeNoticeColors = {
-    warnHex,
-    dangerHex,
-    warnRgb: parseHexRgb(warnHex) ?? [245, 158, 11],
-    dangerRgb: parseHexRgb(dangerHex) ?? [239, 68, 68],
-  };
-  return cachedThemeNoticeColors;
-}
-
 function renderContextNotice(
   session: GatewaySessionRow | undefined,
   defaultContextTokens: number | null,
 ) {
-  if (session?.totalTokensFresh === false) {
-    return nothing;
-  }
-  const used = session?.totalTokens ?? 0;
+  const used = session?.inputTokens ?? 0;
   const limit = session?.contextTokens ?? defaultContextTokens ?? 0;
   if (!used || !limit) {
     return nothing;
@@ -308,15 +273,12 @@ function renderContextNotice(
     return nothing;
   }
   const pct = Math.min(Math.round(ratio * 100), 100);
-  // Read theme semantic tokens so color tracks the active theme (Dash, dark, light …)
-  const { warnRgb, dangerRgb } = getThemeNoticeColors();
-  const [wr, wg, wb] = warnRgb;
-  const [dr, dg, db] = dangerRgb;
-  // Blend from --warn at 85% usage to --danger at 95%+ usage
+  // Lerp from amber (#d97706) at 85% to red (#dc2626) at 95%+
   const t = Math.min(Math.max((ratio - 0.85) / 0.1, 0), 1);
-  const r = Math.round(wr + (dr - wr) * t);
-  const g = Math.round(wg + (dg - wg) * t);
-  const b = Math.round(wb + (db - wb) * t);
+  // RGB: amber(217,119,6) → red(220,38,38)
+  const r = Math.round(217 + (220 - 217) * t);
+  const g = Math.round(119 + (38 - 119) * t);
+  const b = Math.round(6 + (38 - 6) * t);
   const color = `rgb(${r}, ${g}, ${b})`;
   const bgOpacity = 0.08 + 0.08 * t;
   const bg = `rgba(${r}, ${g}, ${b}, ${bgOpacity})`;
@@ -324,8 +286,6 @@ function renderContextNotice(
     <div class="context-notice" role="status" style="--ctx-color:${color};--ctx-bg:${bg}">
       <svg
         class="context-notice__icon"
-        width="24"
-        height="24"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -686,7 +646,6 @@ function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof not
       <input
         type="text"
         placeholder="Search messages..."
-        aria-label="Search messages"
         .value=${vs.searchQuery}
         @input=${(e: Event) => {
           vs.searchQuery = (e.target as HTMLInputElement).value;
@@ -694,8 +653,7 @@ function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof not
         }}
       />
       <button
-        class="btn btn--ghost"
-        aria-label="Close search"
+        class="btn-ghost"
         @click=${() => {
           vs.searchOpen = false;
           vs.searchQuery = "";
@@ -737,9 +695,7 @@ function renderPinnedSection(
         }}
       >
         ${icons.bookmark} ${entries.length} pinned
-        <span class="collapse-chevron ${vs.pinnedExpanded ? "" : "collapse-chevron--collapsed"}"
-          >${icons.chevronDown}</span
-        >
+        ${vs.pinnedExpanded ? icons.chevronDown : icons.chevronRight}
       </button>
       ${vs.pinnedExpanded
         ? html`
@@ -754,7 +710,7 @@ function renderPinnedSection(
                       >${text.slice(0, 100)}${text.length > 100 ? "..." : ""}</span
                     >
                     <button
-                      class="btn btn--ghost"
+                      class="btn-ghost"
                       @click=${() => {
                         pinned.unpin(index);
                         requestUpdate();
@@ -784,7 +740,7 @@ function renderSlashMenu(
   // Arg-picker mode: show options for the selected command
   if (vs.slashMenuMode === "args" && vs.slashMenuCommand && vs.slashMenuArgItems.length > 0) {
     return html`
-      <div class="slash-menu" role="listbox" aria-label="Command arguments">
+      <div class="slash-menu">
         <div class="slash-menu-group">
           <div class="slash-menu-group__label">
             /${vs.slashMenuCommand.name} ${vs.slashMenuCommand.description}
@@ -793,8 +749,6 @@ function renderSlashMenu(
             (arg, i) => html`
               <div
                 class="slash-menu-item ${i === vs.slashMenuIndex ? "slash-menu-item--active" : ""}"
-                role="option"
-                aria-selected=${i === vs.slashMenuIndex}
                 @click=${() => selectSlashArg(arg, props, requestUpdate, true)}
                 @mouseenter=${() => {
                   vs.slashMenuIndex = i;
@@ -848,8 +802,6 @@ function renderSlashMenu(
               class="slash-menu-item ${globalIdx === vs.slashMenuIndex
                 ? "slash-menu-item--active"
                 : ""}"
-              role="option"
-              aria-selected=${globalIdx === vs.slashMenuIndex}
               @click=${() => selectSlashCommand(cmd, props, requestUpdate)}
               @mouseenter=${() => {
                 vs.slashMenuIndex = globalIdx;
@@ -873,7 +825,7 @@ function renderSlashMenu(
   }
 
   return html`
-    <div class="slash-menu" role="listbox" aria-label="Slash commands">
+    <div class="slash-menu">
       ${sections}
       <div class="slash-menu-footer">
         <kbd>↑↓</kbd> navigate <kbd>Tab</kbd> fill <kbd>Enter</kbd> select <kbd>Esc</kbd> close
@@ -931,6 +883,8 @@ export function renderChat(props: ChatProps) {
       () => {},
     );
   };
+
+  // Mermaid copy is now handled globally via inline onclick in markdown.ts
 
   const chatItems = buildChatItems(props);
   const isEmpty = chatItems.length === 0 && !props.loading;
@@ -1284,7 +1238,6 @@ export function renderChat(props: ChatProps) {
                 document.querySelector<HTMLInputElement>(".agent-chat__file-input")?.click();
               }}
               title="Attach file"
-              aria-label="Attach file"
               ?disabled=${!props.connected}
             >
               ${icons.paperclip}
@@ -1352,7 +1305,7 @@ export function renderChat(props: ChatProps) {
               ? nothing
               : html`
                   <button
-                    class="btn btn--ghost"
+                    class="btn-ghost"
                     @click=${props.onNewSession}
                     title="New session"
                     aria-label="New session"
@@ -1361,10 +1314,9 @@ export function renderChat(props: ChatProps) {
                   </button>
                 `}
             <button
-              class="btn btn--ghost"
+              class="btn-ghost"
               @click=${() => exportMarkdown(props)}
               title="Export"
-              aria-label="Export chat"
               ?disabled=${props.messages.length === 0}
             >
               ${icons.download}
@@ -1376,7 +1328,6 @@ export function renderChat(props: ChatProps) {
                     class="chat-send-btn chat-send-btn--stop"
                     @click=${props.onAbort}
                     title="Stop"
-                    aria-label="Stop generating"
                   >
                     ${icons.stop}
                   </button>
@@ -1392,7 +1343,6 @@ export function renderChat(props: ChatProps) {
                     }}
                     ?disabled=${!props.connected || props.sending}
                     title=${isBusy ? "Queue" : "Send"}
-                    aria-label=${isBusy ? "Queue message" : "Send message"}
                   >
                     ${icons.send}
                   </button>
