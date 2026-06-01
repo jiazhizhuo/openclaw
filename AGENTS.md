@@ -296,6 +296,25 @@
 - Release guardrails: do not change version numbers without operator’s explicit consent; always ask permission before running any npm publish/release step.
 - Beta release guardrail: when using a beta Git tag (for example `vYYYY.M.D-beta.N`), publish npm with a matching beta version suffix (for example `YYYY.M.D-beta.N`) rather than a plain version on `--tag beta`; otherwise the plain version name gets consumed/blocked.
 
+## Cursor Cloud specific instructions
+
+- **VM baseline:** Node 22+ and `pnpm@10.23.0` (repo `packageManager`). `bun` is optional and may be absent; prefer `pnpm openclaw …` or `node --import tsx scripts/…` for TypeScript scripts.
+- **First clone (not in the VM update script):** after `pnpm install`, run `pnpm ui:build` then `pnpm build` so `dist/` and `dist/control-ui/` exist. The update script only refreshes dependencies.
+- **Lint:** `pnpm lint` and `pnpm format:check` are the fast gates. Full `pnpm check` also runs `pnpm tsgo` and repo policy scripts; if `tsgo` fails on extension typing at a given commit, still run `pnpm lint` before concluding a change is unsafe.
+- **Tests:** default `pnpm test` needs no external services. For memory-tight VMs use `OPENCLAW_TEST_PROFILE=low`. Gateway integration: `pnpm test -- src/gateway/gateway.test.ts` or `pnpm test -- test/gateway.multi.e2e.test.ts` (spawns minimal gateways; requires prior `pnpm build`).
+- **Run Gateway (dev):** use a **tmux** session for anything long-lived (`tmux -f /exec-daemon/tmux.portal.conf …`). Minimal loopback gateway without channels/providers:
+
+  ```bash
+  export OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_PROVIDERS=1 OPENCLAW_SKIP_GMAIL_WATCHER=1 \
+    OPENCLAW_SKIP_CRON=1 OPENCLAW_SKIP_BROWSER_CONTROL_SERVER=1 OPENCLAW_SKIP_CANVAS_HOST=1
+  node dist/index.js gateway run --port 18789 --bind loopback --allow-unconfigured --force
+  ```
+
+  Set `gateway.auth.token` in config (or pass `--token`) before calling RPCs. Verify: `node dist/index.js gateway call health --url ws://127.0.0.1:18789 --token <token> --json` and open Control UI at `http://127.0.0.1:18789/`.
+
+- **Dev CLI without rebuilding:** `pnpm openclaw <cmd>` (tsx + auto-rebuild). Production-ish path: `node dist/index.js …` or `node openclaw.mjs` after `pnpm build`.
+- **Docker / channels / LLM keys:** not required for unit tests or a minimal gateway smoke; add only when exercising those features (`docs/help/testing.md`).
+
 ## Release Auth
 
 - Core `openclaw` publish uses GitHub trusted publishing; do not use `NPM_TOKEN` or the plugin OTP flow for core releases.
